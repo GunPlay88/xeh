@@ -1,0 +1,22 @@
+# Local build directories and compiler output
+/build*/
+*.o
+*.a
+*.so
+*.so.*
+*.pc
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local Xorg source used only as an API reference
+/external/*/
+
+# Fuzzer crash artifacts
+/crash-*
+/leak-*
+/timeout-*
+/oom-*
+/slow-unit-*

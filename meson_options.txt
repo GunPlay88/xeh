@@ -1,0 +1,7 @@
+option('tests', type: 'boolean', value: true, description: 'Build unit tests')
+option('fuzz', type: 'boolean', value: false, description: 'Build the libFuzzer protocol target (Clang)')
+option('python', type: 'boolean', value: false, description: 'Build Python bindings')
+option('shm', type: 'boolean', value: true, description: 'Enable shared-memory support')
+option('dmabuf', type: 'boolean', value: false, description: 'Enable future dma-buf support')
+option('xorg', type: 'boolean', value: false, description: 'Build the Xorg loadable extension module')
+option('xorg_sdk_include', type: 'string', value: '', description: 'Xorg SDK include directory (when not installed system-wide)')

@@ -1,0 +1,23 @@
+LIBXEH_0.1 {
+    global:
+        xeh_connect;
+        xeh_connect_with_timeout;
+        xeh_disconnect;
+        xeh_register_extension;
+        xeh_unregister_extension;
+        xeh_extension_is_ready;
+        xeh_extension_id;
+        xeh_extension_capabilities;
+        xeh_get_fd;
+        xeh_wants_write;
+        xeh_dispatch;
+        xeh_set_error_handler;
+        xeh_send_reply;
+        xeh_send_error;
+        xeh_send_event;
+        xeh_memfd_from_bytes;
+        xeh_import_shm;
+        xeh_release_shm;
+    local:
+        *;
+};
