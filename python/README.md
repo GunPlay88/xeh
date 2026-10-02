@@ -25,3 +25,12 @@ queues an asynchronous event. The host currently denies events by policy.
 integration with other event loops. `xeh.run()` handles registration and a
 blocking selector loop until interrupted. Request exceptions yield a protocol
 error and are logged. Object creation is not yet exposed by `libxeh`.
+
+For software buffers, request `xeh.CAP_SHM` in the extension and enable SHM
+in the host. `Connection.import_pixels(data, width, height, callback)` copies
+raw bytes to a sealed memfd and queues import. The callback receives
+`(status, handle)`. Once it succeeds, `bind_buffer(handle, request.client_id,
+callback)` grants one X11 client access; `release_buffer(handle)` releases
+the host buffer. Import and bind callbacks run during `dispatch()` and must
+not disconnect the connection. The Python wrapper uses only `libxeh`, not
+libX11, DRI2, or DRI3.

@@ -12,6 +12,7 @@
 
 #include "../registry/registry.h"
 #include "dispatch.h"
+#include "graphics.h"
 #include "ipc.h"
 #include "object.h"
 #include "protocol.h"
@@ -27,6 +28,9 @@
 #include "extnsionst.h"
 #include "os.h"
 #include "xf86Module.h"
+#include "gcstruct.h"
+#include "servermd.h"
+#include "windowstr.h"
 
 #define XEH_MAX_SESSIONS 64
 #define XEH_REQUEST_TIMEOUT_MS 30000
@@ -360,6 +364,34 @@ on_message(xeh_ipc_connection *ipc, const xeh_msg_header *header,
         return queue_message(session, XEH_OP_SHM_RELEASE,
                              header->sequence, header->object, NULL, 0);
     }
+    case XEH_OP_SHM_BIND_CLIENT: {
+        const xeh_remote_extension *extension;
+        xeh_object_result result;
+        uint32_t client_id;
+        if (header->sequence == 0 || length != 4 ||
+            session->extension_id == 0)
+            return queue_error(session, header, XEH_ERROR_PROTOCOL);
+        extension = xeh_registry_find_by_id(host->registry,
+                                            session->extension_id);
+        if (!host->shm_enabled || extension == NULL ||
+            (extension->granted_capabilities & XEH_CAP_SHM) == 0)
+            return queue_error(session, header, XEH_ERROR_PERMISSION);
+        client_id = ((uint32_t)payload[0] << 24) |
+                    ((uint32_t)payload[1] << 16) |
+                    ((uint32_t)payload[2] << 8) | payload[3];
+        if (client_id == 0 || client_id >= MAXCLIENTS ||
+            clients[client_id] == NULL ||
+            clients[client_id]->clientState != ClientStateRunning)
+            return queue_error(session, header, XEH_ERROR_BAD_OBJECT);
+        result = xeh_object_bind_client(host->objects, header->object,
+                                        session->extension_id,
+                                        XEH_OBJECT_TYPE_BUFFER, client_id);
+        if (result != XEH_OBJECT_OK)
+            return queue_error(session, header,
+                               xeh_object_result_to_protocol_error(result));
+        return queue_message(session, XEH_OP_SHM_BIND_CLIENT,
+                             header->sequence, header->object, NULL, 0);
+    }
     case XEH_OP_REPLY:
     case XEH_OP_ERROR:
     case XEH_OP_EVENT: {
@@ -565,6 +597,109 @@ client_state(CallbackListPtr *list, void *closure, void *call_data)
 }
 
 static int
+blit_buffer(ClientPtr client)
+{
+    const uint8_t *bytes = client->requestBuffer;
+    const xeh_remote_extension *extension;
+    xeh_object_info object;
+    const xeh_shm_info *info;
+    DrawablePtr drawable;
+    GCPtr gc;
+    VisualPtr visual = NULL;
+    uint8_t *pixels = NULL;
+    uint32_t extension_id, handle, drawable_id, gc_id;
+    uint16_t src_x, src_y, width, height, dst_x_bits, dst_y_bits;
+    int16_t dst_x, dst_y;
+    int stride, result;
+    int index;
+
+    if (client->req_len != XEH_X11_BLIT_BUFFER_FIXED_SIZE / 4U)
+        return BadLength;
+    memcpy(&extension_id, bytes + 4, 4);
+    memcpy(&handle, bytes + 8, 4);
+    memcpy(&drawable_id, bytes + 12, 4);
+    memcpy(&gc_id, bytes + 16, 4);
+    memcpy(&src_x, bytes + 20, 2);
+    memcpy(&src_y, bytes + 22, 2);
+    memcpy(&dst_x_bits, bytes + 24, 2);
+    memcpy(&dst_y_bits, bytes + 26, 2);
+    memcpy(&width, bytes + 28, 2);
+    memcpy(&height, bytes + 30, 2);
+    if (client->swapped) {
+        swapl(&extension_id);
+        swapl(&handle);
+        swapl(&drawable_id);
+        swapl(&gc_id);
+        swaps(&src_x);
+        swaps(&src_y);
+        swaps(&dst_x_bits);
+        swaps(&dst_y_bits);
+        swaps(&width);
+        swaps(&height);
+    }
+    memcpy(&dst_x, &dst_x_bits, sizeof(dst_x));
+    memcpy(&dst_y, &dst_y_bits, sizeof(dst_y));
+    if (host == NULL || !host->shm_enabled)
+        return BadAccess;
+    extension = xeh_registry_find_by_id(host->registry, extension_id);
+    if (extension == NULL ||
+        (extension->granted_capabilities & XEH_CAP_SHM) == 0 ||
+        xeh_object_lookup(host->objects, handle, extension_id,
+                          XEH_OBJECT_TYPE_BUFFER,
+                          extension->granted_capabilities,
+                          &object) != XEH_OBJECT_OK ||
+        object.owner_client != (uint32_t)client->index)
+        return BadAccess;
+    info = xeh_shm_buffer_info(object.server_object);
+    if (info == NULL || info->format != XEH_BUFFER_FORMAT_XRGB8888 ||
+        width == 0 || height == 0 || src_x >= info->width ||
+        src_y >= info->height || width > info->width - src_x ||
+        height > info->height - src_y)
+        return BadValue;
+    result = dixLookupDrawable(&drawable, drawable_id, client, M_ANY,
+                               DixWriteAccess);
+    if (result != Success)
+        return result;
+    result = dixLookupGC(&gc, gc_id, client, DixUseAccess);
+    if (result != Success)
+        return result;
+    if (gc->depth != drawable->depth || gc->pScreen != drawable->pScreen ||
+        drawable->depth != 24 || BitsPerPixel(24) != 32 ||
+        screenInfo.imageByteOrder != LSBFirst ||
+        (drawable->type == DRAWABLE_WINDOW &&
+         wVisual((WindowPtr)drawable) != drawable->pScreen->rootVisual))
+        return BadMatch;
+    for (index = 0; index < drawable->pScreen->numVisuals; index++) {
+        VisualPtr candidate = &drawable->pScreen->visuals[index];
+        if (candidate->vid == drawable->pScreen->rootVisual) {
+            visual = candidate;
+            break;
+        }
+    }
+    if (visual == NULL || visual->redMask != 0x00ff0000UL ||
+        visual->greenMask != 0x0000ff00UL ||
+        visual->blueMask != 0x000000ffUL)
+        return BadMatch;
+    stride = PixmapBytePad(width, drawable->depth);
+    if (stride <= 0)
+        return BadMatch;
+    result = xeh_graphics_copy_xrgb8888(info,
+                                        xeh_shm_buffer_data(object.server_object),
+                                        src_x, src_y, width, height,
+                                        (size_t)stride, &pixels);
+    if (result == -2)
+        return BadAlloc;
+    if (result != 0)
+        return BadValue;
+    if (gc->serialNumber != drawable->serialNumber)
+        ValidateGC(drawable, gc);
+    gc->ops->PutImage(drawable, gc, drawable->depth, dst_x, dst_y,
+                      width, height, 0, ZPixmap, (char *)pixels);
+    free(pixels);
+    return Success;
+}
+
+static int
 proc_xeh(ClientPtr client)
 {
     xReq *base = client->requestBuffer;
@@ -678,6 +813,8 @@ proc_xeh(ClientPtr client)
         /* A pending request is completed by the socket callback or timer. */
         return Success;
     }
+    if (base->data == XEH_X11_BLIT_BUFFER)
+        return blit_buffer(client);
     return BadRequest;
 }
 

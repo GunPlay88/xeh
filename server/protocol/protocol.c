@@ -105,6 +105,7 @@ xeh_protocol_opcode_is_known(uint16_t opcode)
     case XEH_OP_DESTROY_OBJECT:
     case XEH_OP_SHM_IMPORT:
     case XEH_OP_SHM_RELEASE:
+    case XEH_OP_SHM_BIND_CLIENT:
         return 1;
     default:
         return 0;

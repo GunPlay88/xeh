@@ -23,6 +23,7 @@ ipc_inc = include_directories('server/ipc')
 registry_inc = include_directories('server/registry')
 objects_inc = include_directories('server/objects')
 shm_inc = include_directories('server/shm')
+graphics_inc = include_directories('server/graphics')
 shm_define = '-DXEH_ENABLE_SHM=0'
 if get_option('shm')
   shm_define = '-DXEH_ENABLE_SHM=1'
@@ -68,6 +69,14 @@ shm_lib = static_library(
   install: false,
 )
 
+graphics_lib = static_library(
+  'xeh-graphics',
+  'server/graphics/graphics.c',
+  include_directories: [protocol_inc, shm_inc, graphics_inc],
+  link_with: shm_lib,
+  install: false,
+)
+
 dispatch_lib = static_library(
   'xeh-dispatch',
   'server/dispatch/dispatch.c',
@@ -101,6 +110,62 @@ import('pkgconfig').generate(
   description: 'XEH out-of-process extension client library',
   subdirs: 'xeh',
 )
+
+if get_option('ximage').enabled() and not get_option('shm')
+  error('The XImage adapter requires -Dshm=true')
+endif
+x11_dep = dependency('x11', required: get_option('ximage'))
+ximage_enabled = get_option('shm') and x11_dep.found()
+if ximage_enabled
+  xeh_ximage_lib = shared_library(
+    'xeh-ximage',
+    'libxeh/ximage.c',
+    include_directories: [client_inc, protocol_inc],
+    dependencies: x11_dep,
+    link_with: xeh_client_lib,
+    link_args: ['-Wl,--version-script=' + meson.current_source_dir() / 'libxeh/ximage_abi.map'],
+    link_depends: 'libxeh/ximage_abi.map',
+    version: meson.project_version(),
+    soversion: '0',
+    install: true,
+  )
+  install_headers('libxeh/include/xeh_ximage.h', subdir: 'xeh')
+  import('pkgconfig').generate(
+    xeh_ximage_lib,
+    name: 'libxeh-ximage',
+    filebase: 'libxeh-ximage',
+    description: 'XImage adapter for libxeh',
+    subdirs: 'xeh',
+    requires: ['libxeh', 'x11'],
+  )
+endif
+
+xcb_dri2_dep = dependency('xcb-dri2', required: get_option('dri'))
+xcb_dri3_dep = dependency('xcb-dri3', required: get_option('dri'))
+dri_enabled = xcb_dri2_dep.found() and xcb_dri3_dep.found()
+if dri_enabled
+  xeh_dri_lib = shared_library(
+    'xeh-dri',
+    'libxeh/dri.c',
+    include_directories: [client_inc, protocol_inc],
+    dependencies: [dependency('xcb'), xcb_dri2_dep, xcb_dri3_dep],
+    link_with: xeh_client_lib,
+    link_args: ['-Wl,--version-script=' + meson.current_source_dir() / 'libxeh/dri_abi.map'],
+    link_depends: 'libxeh/dri_abi.map',
+    version: meson.project_version(),
+    soversion: '0',
+    install: true,
+  )
+  install_headers('libxeh/include/xeh_dri.h', subdir: 'xeh')
+  import('pkgconfig').generate(
+    xeh_dri_lib,
+    name: 'libxeh-dri',
+    filebase: 'libxeh-dri',
+    description: 'XCB DRI2 and DRI3 adapters for libxeh',
+    subdirs: 'xeh',
+    requires: ['libxeh', 'xcb', 'xcb-dri2', 'xcb-dri3'],
+  )
+endif
 
 hello_c = executable(
   'xeh-hello',
@@ -244,6 +309,34 @@ if get_option('tests')
       install: false,
     )
     test('shm', shm_test)
+    graphics_test = executable(
+      'graphics-test',
+      'tests/graphics_test.c',
+      include_directories: [protocol_inc, shm_inc, graphics_inc, objects_inc],
+      link_with: [graphics_lib, shm_lib, objects_lib],
+      install: false,
+    )
+    test('graphics', graphics_test)
+  endif
+  if ximage_enabled
+    ximage_test = executable(
+      'ximage-test',
+      'tests/ximage_test.c',
+      include_directories: [client_inc, protocol_inc],
+      link_with: [xeh_ximage_lib, xeh_client_lib],
+      install: false,
+    )
+    test('ximage', ximage_test)
+  endif
+  if dri_enabled
+    dri_test = executable(
+      'dri-test',
+      'tests/dri_test.c',
+      include_directories: [client_inc, protocol_inc],
+      link_with: xeh_dri_lib,
+      install: false,
+    )
+    test('dri', dri_test)
   endif
   if get_option('python')
     python_test_env = environment()

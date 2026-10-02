@@ -1,0 +1,8 @@
+LIBXEH_DRI_0.1 {
+    global:
+        xeh_dri_probe;
+        xeh_dri3_validate_buffer;
+        xeh_dri3_import_dmabuf_pixmap;
+    local:
+        *;
+};

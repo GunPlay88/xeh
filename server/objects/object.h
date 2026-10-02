@@ -83,6 +83,12 @@ xeh_object_result xeh_object_destroy(
     uint32_t requester_extension,
     xeh_object_type expected_type);
 
+/* Bind an unbound object to one client. Rebinding to another client fails.
+ * Removing that client destroys the object. */
+xeh_object_result xeh_object_bind_client(
+    xeh_object_table *table, uint32_t handle, uint32_t requester_extension,
+    xeh_object_type expected_type, uint32_t owner_client);
+
 size_t xeh_object_remove_extension(xeh_object_table *table,
                                    uint32_t owner_extension);
 

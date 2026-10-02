@@ -13,6 +13,7 @@ struct xeh_shm_buffer {
     int fd;
     const void *mapping;
     size_t size;
+    xeh_shm_info info;
 };
 
 int
@@ -80,7 +81,7 @@ xeh_shm_import_fd(int fd, const xeh_shm_info *info)
         close(owned_fd);
         return NULL;
     }
-    *buffer = (xeh_shm_buffer){owned_fd, mapping, (size_t)info->size};
+    *buffer = (xeh_shm_buffer){owned_fd, mapping, (size_t)info->size, *info};
     return buffer;
 #else
     (void)fd;
@@ -111,4 +112,10 @@ uint64_t
 xeh_shm_buffer_size(const xeh_shm_buffer *buffer)
 {
     return buffer == NULL ? 0 : buffer->size;
+}
+
+const xeh_shm_info *
+xeh_shm_buffer_info(const xeh_shm_buffer *buffer)
+{
+    return buffer == NULL ? NULL : &buffer->info;
 }

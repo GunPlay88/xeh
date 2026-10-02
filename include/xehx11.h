@@ -6,6 +6,7 @@
 #define XEH_X11_QUERY_VERSION 0
 #define XEH_X11_FORWARD 1
 #define XEH_X11_LOOKUP 2
+#define XEH_X11_BLIT_BUFFER 3
 
 /* QUERY_VERSION is the four-byte xReq. Its 32-byte reply has protocol
  * major/minor in data00/data01. */
@@ -21,5 +22,12 @@
  * major/minor versions in data01/data02, and request_count in data03.
  * An unknown name produces id 0. */
 #define XEH_X11_LOOKUP_FIXED_SIZE 8U
+
+/* BLIT_BUFFER is exactly 32 bytes: xReq, extension_id:u32, buffer:u32,
+ * drawable:u32, gc:u32, src_x:u16, src_y:u16, dst_x:i16, dst_y:i16,
+ * width:u16, height:u16. The buffer must be bound to this X11 client.
+ * Only native little-endian XRGB8888 to depth-24/32-bpp drawables is
+ * supported; the destination GC controls clipping and raster operation. */
+#define XEH_X11_BLIT_BUFFER_FIXED_SIZE 32U
 
 #endif

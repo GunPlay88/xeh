@@ -17,7 +17,9 @@ LIBXEH_0.1 {
         xeh_send_event;
         xeh_memfd_from_bytes;
         xeh_import_shm;
+        xeh_import_pixels;
         xeh_release_shm;
+        xeh_bind_shm_client;
     local:
         *;
 };

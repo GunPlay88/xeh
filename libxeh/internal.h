@@ -17,6 +17,10 @@ struct xeh_extension {
     uint32_t import_sequence;
     uint32_t release_sequence;
     uint32_t release_handle;
+    uint32_t bind_sequence;
+    uint32_t bind_handle;
+    xeh_shm_result_handler bind_handler;
+    void *bind_userdata;
     xeh_shm_result_handler import_handler;
     void *import_userdata;
     char name[XEH_MAX_EXTENSION_NAME + 1U];

@@ -7,11 +7,16 @@ import os
 import selectors
 import time
 
-from ._native import ErrorCallback, ExtensionInfo, RegistrationCallback, RequestCallback, load
+from ._native import (ErrorCallback, ExtensionInfo, NativeShmInfo,
+                      RegistrationCallback, RequestCallback, ShmResultCallback, load)
 from .request import Request
 
 
 LOGGER = logging.getLogger(__name__)
+CAP_SHM = 1 << 3
+BUFFER_XRGB8888 = 1
+BUFFER_ARGB8888 = 2
+BUFFER_RGB565 = 3
 
 
 class XEHError(RuntimeError):
@@ -43,6 +48,7 @@ class Connection:
         self._handlers = {}
         self._registration_status = None
         self._callback_failure = None
+        self._buffer_callbacks = {}
         self._callbacks = (
             RequestCallback(self._on_request),
             RegistrationCallback(self._on_registered),
@@ -140,6 +146,82 @@ class Connection:
         _check(self._lib.xeh_send_event(self._extension, number, target_client,
                                         target_object, payload, len(payload)), "event")
 
+    def _buffer_result(self, operation, callback):
+        if not callable(callback):
+            raise TypeError("callback must be callable")
+        if operation in self._buffer_callbacks:
+            raise XEHError(f"{operation} already pending")
+
+        def complete(_extension, status, handle, _userdata):
+            keepalive = self._buffer_callbacks.pop(operation, None)
+            try:
+                callback(status, handle)
+            except BaseException as error:
+                self._callback_failure = error
+            finally:
+                del keepalive
+
+        native = ShmResultCallback(complete)
+        self._buffer_callbacks[operation] = native
+        return native
+
+    def import_pixels(self, pixels, width, height, callback,
+                      stride=None, pixel_format=BUFFER_XRGB8888):
+        if not self._extension or not self._lib.xeh_extension_is_ready(self._extension):
+            raise XEHError("extension is not registered")
+        if (self.capabilities & CAP_SHM) == 0:
+            raise XEHError("SHM capability was not granted")
+        if (not isinstance(width, int) or not 0 < width <= 16384 or
+                not isinstance(height, int) or not 0 < height <= 16384):
+            raise ValueError("invalid buffer dimensions")
+        if pixel_format not in (BUFFER_XRGB8888, BUFFER_ARGB8888, BUFFER_RGB565):
+            raise ValueError("unsupported pixel format")
+        bytes_per_pixel = 2 if pixel_format == BUFFER_RGB565 else 4
+        if stride is None:
+            stride = width * bytes_per_pixel
+        if (not isinstance(stride, int) or
+                not width * bytes_per_pixel <= stride <= 0xffffffff or
+                stride % bytes_per_pixel):
+            raise ValueError("invalid buffer stride")
+        try:
+            view = memoryview(pixels)
+        except TypeError as error:
+            raise TypeError("pixels must be bytes-like") from error
+        if not 0 < view.nbytes <= 536870912 or stride * height > view.nbytes:
+            raise ValueError("invalid buffer size")
+        data = view.tobytes()
+        info = NativeShmInfo(width, height, stride, pixel_format, 0, len(data))
+        native = self._buffer_result("import", callback)
+        try:
+            _check(self._lib.xeh_import_pixels(self._extension, data, len(data),
+                                                ctypes.byref(info), native, None),
+                   "import pixels")
+        except BaseException:
+            self._buffer_callbacks.pop("import", None)
+            raise
+
+    def bind_buffer(self, handle, client_id, callback):
+        if not self._extension or not self._lib.xeh_extension_is_ready(self._extension):
+            raise XEHError("extension is not registered")
+        if (not isinstance(handle, int) or not 0 < handle <= 0xffffffff or
+                not isinstance(client_id, int) or not 0 < client_id <= 0xffffffff):
+            raise ValueError("invalid buffer handle or client id")
+        native = self._buffer_result("bind", callback)
+        try:
+            _check(self._lib.xeh_bind_shm_client(self._extension, handle,
+                                                  client_id, native, None),
+                   "bind buffer")
+        except BaseException:
+            self._buffer_callbacks.pop("bind", None)
+            raise
+
+    def release_buffer(self, handle):
+        if not self._extension or not self._lib.xeh_extension_is_ready(self._extension):
+            raise XEHError("extension is not registered")
+        if not isinstance(handle, int) or not 0 < handle <= 0xffffffff:
+            raise ValueError("invalid buffer handle")
+        _check(self._lib.xeh_release_shm(self._extension, handle), "release buffer")
+
     def dispatch(self):
         if not self._handle:
             raise XEHError("connection is closed")
@@ -189,6 +271,7 @@ class Connection:
                         break
         self._lib.xeh_disconnect(self._handle)
         self._handle = None
+        self._buffer_callbacks.clear()
 
 
 def run(extension, socket_path=None):

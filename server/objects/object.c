@@ -302,6 +302,30 @@ xeh_object_destroy(xeh_object_table *table,
     return destroy_slot(table, slot_index);
 }
 
+xeh_object_result
+xeh_object_bind_client(xeh_object_table *table, uint32_t handle,
+                       uint32_t requester_extension,
+                       xeh_object_type expected_type, uint32_t owner_client)
+{
+    xeh_object_slot *slot;
+    if (table == NULL || requester_extension == 0 || owner_client == 0 ||
+        !type_is_valid(expected_type, false))
+        return XEH_OBJECT_INVALID_ARGUMENT;
+    if (table->shutting_down || table->callback_depth != 0)
+        return XEH_OBJECT_REENTRANT;
+    slot = resolve_slot(table, handle, NULL);
+    if (slot == NULL)
+        return XEH_OBJECT_BAD_HANDLE;
+    if (slot->owner_extension != requester_extension)
+        return XEH_OBJECT_NOT_OWNER;
+    if (slot->type != expected_type)
+        return XEH_OBJECT_WRONG_TYPE;
+    if (slot->owner_client != 0 && slot->owner_client != owner_client)
+        return XEH_OBJECT_BUSY;
+    slot->owner_client = owner_client;
+    return XEH_OBJECT_OK;
+}
+
 static size_t
 remove_matching(xeh_object_table *table, uint32_t owner, bool match_extension)
 {

@@ -1,3 +1,4 @@
+import ctypes
 import json
 import os
 import socket
@@ -7,6 +8,7 @@ import threading
 import unittest
 
 import xeh
+from xeh._native import NativeShmInfo
 
 
 HEADER = struct.Struct("!IHHHHIII")
@@ -49,6 +51,65 @@ class Hello(xeh.Extension):
 
 
 class PythonTest(unittest.TestCase):
+    def test_pixel_wrapper(self):
+        class FakeLib:
+            def __init__(self):
+                self.callbacks = {}
+                self.released = None
+
+            def xeh_extension_is_ready(self, _extension):
+                return True
+
+            def xeh_extension_capabilities(self, _extension):
+                return xeh.CAP_SHM
+
+            def xeh_import_pixels(self, _extension, data, length, info, callback, _userdata):
+                native = ctypes.cast(info, ctypes.POINTER(NativeShmInfo)).contents
+                self_test.assertEqual((native.width, native.height, native.stride,
+                                       native.format, native.size), (2, 2, 8, 1, 16))
+                self_test.assertEqual(data, bytes(range(16)))
+                self_test.assertEqual(length, 16)
+                self.callbacks["import"] = callback
+                return 0
+
+            def xeh_bind_shm_client(self, _extension, handle, client_id, callback, _userdata):
+                self_test.assertEqual((handle, client_id), (9, 7))
+                self.callbacks["bind"] = callback
+                return 0
+
+            def xeh_release_shm(self, _extension, handle):
+                self.released = handle
+                return 0
+
+        self_test = self
+        connection = xeh.Connection.__new__(xeh.Connection)
+        connection._lib = FakeLib()
+        connection._extension = ctypes.c_void_p(42)
+        connection._buffer_callbacks = {}
+        connection._callback_failure = None
+        completed = []
+        connection.import_pixels(bytes(range(16)), 2, 2,
+                                 lambda status, handle: completed.append((status, handle)))
+        self.assertIn("import", connection._buffer_callbacks)
+        with self.assertRaises(xeh.XEHError):
+            connection.import_pixels(bytes(range(16)), 2, 2, lambda *_: None)
+        connection._lib.callbacks.pop("import")(None, 0, 9, None)
+        self.assertEqual(completed, [(0, 9)])
+        self.assertNotIn("import", connection._buffer_callbacks)
+        connection.bind_buffer(9, 7,
+                               lambda status, handle: completed.append((status, handle)))
+        connection._lib.callbacks.pop("bind")(None, 0, 9, None)
+        self.assertEqual(completed[-1], (0, 9))
+        connection.release_buffer(9)
+        self.assertEqual(connection._lib.released, 9)
+        with self.assertRaises(TypeError):
+            connection.import_pixels(16, 2, 2, lambda *_: None)
+        with self.assertRaises(ValueError):
+            connection.import_pixels(bytes(15), 2, 2, lambda *_: None)
+        with self.assertRaises(ValueError):
+            connection.import_pixels(bytes(16), 2, 2, lambda *_: None,
+                                     stride=7)
+
     def test_fake_host(self):
         errors = []
         handled = threading.Event()

@@ -97,6 +97,21 @@ xeh_on_message(xeh_ipc_connection *ipc, const xeh_msg_header *header,
         extension->release_handle = 0;
         return 0;
     }
+    if (header->opcode == XEH_OP_SHM_BIND_CLIENT) {
+        if (extension == NULL || extension->bind_sequence == 0 ||
+            header->sequence != extension->bind_sequence ||
+            header->object != extension->bind_handle || length != 0)
+            return -1;
+        extension->bind_sequence = 0;
+        extension->bind_handle = 0;
+        if (extension->bind_handler != NULL) {
+            connection->in_callback = true;
+            extension->bind_handler(extension, XEH_OK, header->object,
+                                    extension->bind_userdata);
+            connection->in_callback = false;
+        }
+        return 0;
+    }
     if (header->opcode == XEH_OP_ERROR) {
         xeh_error_info error;
         if (xeh_protocol_decode_error_info(payload, length, &error) !=
@@ -121,6 +136,17 @@ xeh_on_message(xeh_ipc_connection *ipc, const xeh_msg_header *header,
             header->sequence == extension->release_sequence) {
             extension->release_sequence = 0;
             extension->release_handle = 0;
+        }
+        if (extension != NULL && extension->bind_sequence != 0 &&
+            header->sequence == extension->bind_sequence) {
+            extension->bind_sequence = 0;
+            extension->bind_handle = 0;
+            if (extension->bind_handler != NULL) {
+                connection->in_callback = true;
+                extension->bind_handler(extension, XEH_ERR_REMOTE, 0,
+                                        extension->bind_userdata);
+                connection->in_callback = false;
+            }
         }
         if (connection->error_handler != NULL) {
             connection->in_callback = true;

@@ -1,0 +1,7 @@
+LIBXEH_XIMAGE_0.1 {
+    global:
+        xeh_ximage_to_memfd;
+        xeh_import_ximage;
+    local:
+        *;
+};

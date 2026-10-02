@@ -37,9 +37,27 @@ typedef struct x11_forward {
     uint32_t target;
 } x11_forward;
 
+typedef struct x11_blit_buffer {
+    uint8_t major;
+    uint8_t minor;
+    uint16_t length;
+    uint32_t extension_id;
+    uint32_t buffer;
+    uint32_t drawable;
+    uint32_t gc;
+    uint16_t src_x;
+    uint16_t src_y;
+    int16_t dst_x;
+    int16_t dst_y;
+    uint16_t width;
+    uint16_t height;
+} x11_blit_buffer;
+
 _Static_assert(sizeof(x11_reply) == 32, "X11 reply size");
 _Static_assert(sizeof(x11_forward) == XEH_X11_FORWARD_FIXED_SIZE,
                "X11 forward size");
+_Static_assert(sizeof(x11_blit_buffer) == XEH_X11_BLIT_BUFFER_FIXED_SIZE,
+               "X11 buffer blit size");
 
 static void
 fail(const char *message)

@@ -92,6 +92,44 @@ xeh_import_shm(xeh_extension *extension, int fd, const xeh_shm_info *info,
 }
 
 xeh_status
+xeh_import_pixels(xeh_extension *extension, const void *data, size_t length,
+                  const xeh_shm_info *info, xeh_shm_result_handler handler,
+                  void *userdata)
+{
+#if XEH_ENABLE_SHM
+    xeh_status result;
+    int fd;
+    if (extension == NULL || data == NULL || info == NULL || handler == NULL ||
+        xeh_shm_validate_info(info) != 0 || info->size != length)
+        return XEH_ERR_ARGUMENT;
+    if (!extension->ready ||
+        (extension->granted_capabilities & XEH_CAP_SHM) == 0)
+        return XEH_ERR_STATE;
+    fd = xeh_memfd_from_bytes(data, length);
+    if (fd < 0) {
+        if (errno == ENOMEM)
+            return XEH_ERR_MEMORY;
+        if (errno == EINVAL)
+            return XEH_ERR_ARGUMENT;
+        if (errno == ENOSYS)
+            return XEH_ERR_STATE;
+        return XEH_ERR_IO;
+    }
+    result = xeh_import_shm(extension, fd, info, handler, userdata);
+    close(fd);
+    return result;
+#else
+    (void)extension;
+    (void)data;
+    (void)length;
+    (void)info;
+    (void)handler;
+    (void)userdata;
+    return XEH_ERR_STATE;
+#endif
+}
+
+xeh_status
 xeh_release_shm(xeh_extension *extension, uint32_t handle)
 {
 #if XEH_ENABLE_SHM
@@ -113,6 +151,46 @@ xeh_release_shm(xeh_extension *extension, uint32_t handle)
 #else
     (void)extension;
     (void)handle;
+    return XEH_ERR_STATE;
+#endif
+}
+
+xeh_status
+xeh_bind_shm_client(xeh_extension *extension, uint32_t handle,
+                    uint32_t client_id, xeh_shm_result_handler handler,
+                    void *userdata)
+{
+#if XEH_ENABLE_SHM
+    xeh_connection *connection;
+    uint8_t wire[4];
+    xeh_status result;
+    if (extension == NULL || !extension->ready || handle == 0 ||
+        client_id == 0 || handler == NULL || extension->bind_sequence != 0)
+        return XEH_ERR_ARGUMENT;
+    if ((extension->granted_capabilities & XEH_CAP_SHM) == 0)
+        return XEH_ERR_STATE;
+    connection = extension->connection;
+    if (connection->next_sequence == 0)
+        return XEH_ERR_STATE;
+    wire[0] = (uint8_t)(client_id >> 24);
+    wire[1] = (uint8_t)(client_id >> 16);
+    wire[2] = (uint8_t)(client_id >> 8);
+    wire[3] = (uint8_t)client_id;
+    result = xeh_queue(connection, XEH_OP_SHM_BIND_CLIENT,
+                       connection->next_sequence, handle, wire, sizeof(wire));
+    if (result != XEH_OK)
+        return result;
+    extension->bind_sequence = connection->next_sequence++;
+    extension->bind_handle = handle;
+    extension->bind_handler = handler;
+    extension->bind_userdata = userdata;
+    return XEH_OK;
+#else
+    (void)extension;
+    (void)handle;
+    (void)client_id;
+    (void)handler;
+    (void)userdata;
     return XEH_ERR_STATE;
 #endif
 }

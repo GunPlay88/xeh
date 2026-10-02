@@ -125,6 +125,12 @@ test_validation(void)
                                        XEH_DEFAULT_MAX_MESSAGE_LENGTH) ==
           XEH_DECODE_BAD_FLAGS);
     header = valid_header();
+    header.opcode = XEH_OP_SHM_BIND_CLIENT;
+    header.length = 4;
+    CHECK(xeh_protocol_validate_header(&header, 1, 0,
+                                       XEH_DEFAULT_MAX_MESSAGE_LENGTH) ==
+          XEH_DECODE_OK);
+    header = valid_header();
     CHECK(xeh_protocol_validate_header(&header, 1, 0,
                                        XEH_HARD_MAX_MESSAGE_LENGTH + 1U) ==
           XEH_DECODE_INVALID_ARGUMENT);

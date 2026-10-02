@@ -25,14 +25,29 @@ frames, and opaque handles; no Xorg pointer crosses IPC.
 - HELLO, registration, request/reply routing, errors, pending-request timeout,
   disconnect cleanup, and generation-aware object ownership are implemented.
 - `libxeh` and the Python runtime support external, single-threaded extensions.
+- Optional `libxeh-ximage` converts supported client-side libX11 `XImage`
+  objects to sealed memfds for the same SHM import path. Xorg never receives
+  an `XImage *` or links libX11 for this adapter.
+- `xeh_import_pixels()` and Python `Connection.import_pixels()` accept raw
+  bytes for language-neutral software rendering. Optional `libxeh-dri`
+  probes DRI2/DRI3 and can import a real dma-buf through DRI3 on a capable
+  server; DRI2 is discovery-only.
 - Linux sealed-memfd import/release creates read-only, server-owned buffer
-  handles. No X11 graphics operation consumes those buffers yet.
+  handles. An extension can bind a buffer to one X11 client, which can copy
+  a bounded XRGB8888 rectangle to an authorized drawable via `BLIT_BUFFER`.
 - Event messages are parsed and validated, but the Xorg adapter currently
   denies event emission. General object-creation commands and dma-buf import
-  are not implemented. The Python wrapper does not expose SHM yet.
+  through XEH IPC are not implemented.
 - This is a research prototype, **not a security-reviewed Xorg deployment**.
   Current Xorg builds compile, but live server behavior has not been verified
   in this virtual environment.
+
+The graphics path currently supports only little-endian XRGB8888 on a
+depth-24, 32-bpp screen with standard RGB masks. The X11 client must have
+write access to the drawable and use access to a matching GC. A blit stages
+at most 4 MiB per request, so it is a simple CPU path, not zero-copy or
+GPU presentation. See [graphics details](server/graphics/README.md) and
+the [DRI adapter notes](libxeh/DRI.md).
 
 The Xorg socket is mode 0600 and peers must have the server's effective UID,
 checked with `SO_PEERCRED`. Connecting does not grant capabilities. The host
@@ -46,7 +61,10 @@ fails pending requests and destroys its resources before removing registration.
 
 Requirements: Meson, Ninja, a C11 compiler, and Linux for the socket and
 memfd paths. Python 3 is needed only for `-Dpython=true`. Xorg headers and
-pixman are needed only for `-Dxorg=true`.
+pixman are needed only for `-Dxorg=true`. libX11 development files are needed
+for `-Dximage=enabled`; the adapter is skipped when unavailable in auto mode.
+`-Ddri=enabled` requires XCB DRI2 and DRI3 development packages; this
+adapter is also skipped when unavailable in auto mode.
 
 ```sh
 meson setup build -Dtests=true -Dpython=true
@@ -86,7 +104,7 @@ standalone protocol fuzz target.
 
 - `include/`: IPC and X11-facing protocol definitions.
 - `server/`: protocol codec, nonblocking IPC, registry, dispatch, objects,
-  SHM validation, and the Xorg adapter.
+  SHM and graphics validation, and the Xorg adapter.
 - `libxeh/`: installable native client library.
 - `python/`: `ctypes` binding and external Python runtime.
 - `examples/`, `tests/`, `fuzz/`: extension samples and verification.

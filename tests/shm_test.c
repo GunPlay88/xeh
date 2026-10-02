@@ -72,6 +72,8 @@ on_fd(xeh_ipc_connection *connection, const xeh_msg_header *header,
     buffer = xeh_shm_import_fd(fd, &info);
     CHECK(buffer != NULL);
     CHECK(xeh_shm_buffer_size(buffer) == 16);
+    CHECK(xeh_shm_buffer_info(buffer)->format ==
+          XEH_BUFFER_FORMAT_XRGB8888);
     memcpy(result->bytes, xeh_shm_buffer_data(buffer), 16);
     xeh_shm_buffer_destroy(buffer, NULL);
     result->imported++;
@@ -369,6 +371,7 @@ write_frame(int fd, xeh_msg_header *message, const void *payload)
 
 typedef struct host_capture {
     unsigned imported;
+    unsigned bound;
     unsigned released;
 } host_capture;
 
@@ -402,7 +405,18 @@ host_message(xeh_ipc_connection *connection, const xeh_msg_header *message,
 {
     host_capture *result = userdata;
     xeh_msg_header reply = header(XEH_OP_SHM_RELEASE, 0, 0);
-    (void)payload;
+    if (message->opcode == XEH_OP_SHM_BIND_CLIENT) {
+        CHECK(message->object == 9 && length == 4);
+        CHECK(payload[0] == 0 && payload[1] == 0 &&
+              payload[2] == 0 && payload[3] == 7);
+        reply.opcode = XEH_OP_SHM_BIND_CLIENT;
+        reply.sequence = message->sequence;
+        reply.object = 9;
+        CHECK(xeh_ipc_connection_queue_message(connection, &reply, NULL) ==
+              XEH_IPC_OK);
+        result->bound++;
+        return 0;
+    }
     CHECK(message->opcode == XEH_OP_SHM_RELEASE);
     CHECK(message->object == 9 && length == 0);
     reply.sequence = message->sequence;
@@ -463,7 +477,8 @@ fake_host(int listener)
         CHECK(xeh_ipc_connection_on_writable(connection) == XEH_IPC_OK);
         CHECK(xeh_ipc_connection_on_readable(connection) == XEH_IPC_OK);
     }
-    CHECK(result.imported == 1 && result.released == 1);
+    CHECK(result.imported == 1 && result.bound == 1 &&
+          result.released == 1);
     CHECK(xeh_ipc_connection_on_writable(connection) == XEH_IPC_OK);
     xeh_ipc_connection_destroy(connection);
     close(listener);
@@ -498,7 +513,6 @@ test_client_roundtrip(void)
     xeh_shm_info info = {2, 2, 8, XEH_BUFFER_FORMAT_XRGB8888, 0, 16};
     import_capture result = {0};
     pid_t child;
-    int fd;
     int status;
     int index;
     CHECK(mkdtemp(directory) != NULL);
@@ -523,10 +537,17 @@ test_client_roundtrip(void)
     }
     CHECK(xeh_extension_is_ready(extension));
     CHECK(xeh_extension_capabilities(extension) == XEH_CAP_SHM);
-    fd = xeh_memfd_from_bytes("0123456789abcdef", 16);
-    CHECK(fd >= 0);
-    CHECK(xeh_import_shm(extension, fd, &info, imported, &result) == XEH_OK);
-    close(fd);
+    CHECK(xeh_import_pixels(extension, "0123456789abcdef", 16, &info,
+                            imported, &result) == XEH_OK);
+    for (index = 0; index < 100 && result.called == 0; index++) {
+        struct pollfd item = {.fd = xeh_get_fd(connection), .events = POLLIN};
+        CHECK(poll(&item, 1, 100) >= 0);
+        CHECK(xeh_dispatch(connection) >= XEH_OK);
+    }
+    CHECK(result.called == 1 && result.handle == 9);
+    result.called = 0;
+    CHECK(xeh_bind_shm_client(extension, result.handle, 7,
+                              imported, &result) == XEH_OK);
     for (index = 0; index < 100 && result.called == 0; index++) {
         struct pollfd item = {.fd = xeh_get_fd(connection), .events = POLLIN};
         CHECK(poll(&item, 1, 100) >= 0);

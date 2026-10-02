@@ -57,7 +57,17 @@ SHM imports carry one sealed memfd via `SCM_RIGHTS` and 32-byte control
 metadata. The host verifies seals, exact file size, dimensions, stride,
 format, ownership, and a 256 MiB aggregate quota. Imports create generation-
 aware buffer handles; release or disconnect destroys them. The host maps
-buffers read-only. No graphics operation consumes them yet.
+buffers read-only. `BLIT_BUFFER` is the first consumer; other graphics
+operations are not implemented.
+
+`SHM_BIND_CLIENT` binds a buffer handle to one live X11 client index, normally
+the `client_id` in an extension request. The X11 client may then send the
+32-byte `BLIT_BUFFER` request defined in `include/xehx11.h` to copy a bounded
+rectangle into a drawable. The host checks the binding, extension ownership,
+the client's drawable write and GC use access, depth, byte order, and root
+visual masks. The buffer is destroyed on client disconnect. This path has
+compile and standalone coverage but has not been tested against a running
+Xorg server in this environment. See [graphics details](../graphics/README.md).
 
 Current limits: no X11 event emission, general object creation commands,
 dma-buf import, or authentication for peers with a different UID. The X11

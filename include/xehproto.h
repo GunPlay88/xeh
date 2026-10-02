@@ -39,6 +39,7 @@ extern "C" {
 #define XEH_CAP_DRM_BUFFER (UINT64_C(1) << 6)
 #define XEH_CAP_KNOWN_MASK UINT64_C(0x000000000000007f)
 
+/* XRGB8888 pixels are little-endian B, G, R, X bytes. */
 #define XEH_BUFFER_FORMAT_XRGB8888 UINT32_C(1)
 #define XEH_BUFFER_FORMAT_ARGB8888 UINT32_C(2)
 #define XEH_BUFFER_FORMAT_RGB565 UINT32_C(3)
@@ -75,7 +76,9 @@ typedef enum xeh_opcode {
     XEH_OP_DESTROY_OBJECT = 0x0301,
 
     XEH_OP_SHM_IMPORT = 0x0400,
-    XEH_OP_SHM_RELEASE = 0x0401
+    XEH_OP_SHM_RELEASE = 0x0401,
+    /* Object is a buffer handle; payload is one big-endian client id. */
+    XEH_OP_SHM_BIND_CLIENT = 0x0402
 } xeh_opcode;
 
 typedef enum xeh_protocol_error {

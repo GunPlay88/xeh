@@ -115,7 +115,18 @@ int xeh_memfd_from_bytes(const void *data, size_t length);
 xeh_status xeh_import_shm(xeh_extension *extension, int fd,
                           const xeh_shm_info *info,
                           xeh_shm_result_handler handler, void *userdata);
+/* Copy raw pixel bytes into a sealed memfd and queue an asynchronous import.
+ * The input can be released when this function returns. */
+xeh_status xeh_import_pixels(xeh_extension *extension, const void *data,
+                             size_t length, const xeh_shm_info *info,
+                             xeh_shm_result_handler handler, void *userdata);
 xeh_status xeh_release_shm(xeh_extension *extension, uint32_t handle);
+/* Bind a buffer to one X11 client id received in xeh_request.client_id.
+ * Completion is asynchronous; the buffer is destroyed when that client exits. */
+xeh_status xeh_bind_shm_client(xeh_extension *extension, uint32_t handle,
+                               uint32_t client_id,
+                               xeh_shm_result_handler handler,
+                               void *userdata);
 
 #ifdef __cplusplus
 }

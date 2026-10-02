@@ -22,6 +22,20 @@ RegistrationCallback = c.CFUNCTYPE(None, c.c_void_p, c.c_int, c.c_void_p)
 ErrorCallback = c.CFUNCTYPE(
     None, c.c_void_p, c.c_uint32, c.c_uint32, c.c_uint16, c.c_uint32, c.c_void_p
 )
+ShmResultCallback = c.CFUNCTYPE(
+    None, c.c_void_p, c.c_int, c.c_uint32, c.c_void_p
+)
+
+
+class NativeShmInfo(c.Structure):
+    _fields_ = [
+        ("width", c.c_uint32),
+        ("height", c.c_uint32),
+        ("stride", c.c_uint32),
+        ("format", c.c_uint32),
+        ("flags", c.c_uint32),
+        ("size", c.c_uint64),
+    ]
 
 
 class ExtensionInfo(c.Structure):
@@ -59,6 +73,11 @@ def load():
         "xeh_send_reply": (c.c_int, [c.c_void_p, c.POINTER(NativeRequest), c.c_void_p, c.c_size_t]),
         "xeh_send_error": (c.c_int, [c.c_void_p, c.POINTER(NativeRequest), c.c_uint16, c.c_uint16, c.c_uint32]),
         "xeh_send_event": (c.c_int, [c.c_void_p, c.c_uint16, c.c_uint32, c.c_uint32, c.c_void_p, c.c_size_t]),
+        "xeh_import_pixels": (c.c_int, [c.c_void_p, c.c_char_p, c.c_size_t,
+                                          c.POINTER(NativeShmInfo), ShmResultCallback, c.c_void_p]),
+        "xeh_bind_shm_client": (c.c_int, [c.c_void_p, c.c_uint32, c.c_uint32,
+                                            ShmResultCallback, c.c_void_p]),
+        "xeh_release_shm": (c.c_int, [c.c_void_p, c.c_uint32]),
     }
     for name, (result, arguments) in signatures.items():
         function = getattr(lib, name)
